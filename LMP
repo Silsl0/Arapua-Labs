@@ -1,54 +1,54 @@
 // ==========================
-// SertAI — Lençóis Maranhenses (MVP robusto)
+// SertAI — Lençóis Maranhenses (Robust MVP)
 // Google Earth Engine — JavaScript
 // ==========================
 
-// -------- Parâmetros gerais --------
-var useWDPA     = false;               // true: tenta usar polígono do parque (WDPA) + BBox; false: só BBox ∩ Brasil
-var wdpaBufferKm = 0;                  // buffer ao redor do parque (se useWDPA=true). Ex.: 5
-var scaleOut    = 10;                  // metros (S1 ~10 m)
+// -------- General parameters --------
+var useWDPA      = false;              // true: try park polygon (WDPA) + BBox; false: only BBox ∩ Brazil land
+var wdpaBufferKm = 0;                  // buffer around park (if useWDPA=true). e.g., 5
+var scaleOut     = 10;                 // meters (S1 ~10 m)
 var exportFolder = 'SertAI_GEE_Exports';
 
-// Datas (ajuste conforme quiser)
-var wetStart  = '2024-03-01';  // chuvoso: mar–jun
+// Dates (adjust as needed)
+var wetStart  = '2024-03-01';  // wet season: Mar–Jun
 var wetEnd    = '2024-06-30';
-var dryStart  = '2024-08-01';  // seco: ago–set (ou jul–out)
+var dryStart  = '2024-08-01';  // dry season: Aug–Sep (or Jul–Oct)
 var dryEnd    = '2024-09-30';
 
-// -------- 1) AOI — BBox ∩ Terra do Brasil (com opção WDPA) --------
-// BBox base (ajuste livre)
+// -------- 1) AOI — BBox ∩ Brazil land (with optional WDPA) --------
+// Base BBox (freely adjust)
 var aoiBBox = ee.Geometry.Rectangle({
   coords: [-43.30, -2.60, -42.70, -2.00], // [minLon, minLat, maxLon, maxLat]
   geodesic: false
 });
 
-// Terra do Brasil (remove mar)
+// Brazil land (remove ocean)
 var brasilTerra = ee.FeatureCollection('USDOS/LSIB_SIMPLE/2017')
   .filter(ee.Filter.eq('country_na', 'Brazil'))
   .geometry();
 
-// Começa com BBox ∩ Brasil
+// Start with BBox ∩ Brazil
 var aoiBase = aoiBBox.intersection(brasilTerra, ee.ErrorMargin(1));
 
-// (Opcional) tentar polígono do Parque (WDPA) com fallback
+// (Optional) try Park polygon (WDPA) with fallback
 var aoiFinal;
 if (useWDPA) {
   var wdpaCand = ee.FeatureCollection('WCMC/WDPA/current/polygons')
-    // filtro tolerante (evita problema de acentos)
+    // tolerant filter (avoids accent issues)
     .filter(ee.Filter.stringContains('NAME', 'Maranhenses'));
-  print('WDPA candidatos:', wdpaCand.size());
+  print('WDPA candidates:', wdpaCand.size());
 
   var wdpaGeom = ee.FeatureCollection(wdpaCand).geometry();
   if (wdpaBufferKm > 0) {
     wdpaGeom = wdpaGeom.buffer(wdpaBufferKm * 1000);
   }
 
-  // Interseção com a BBox (mantém controle espacial)
+  // Intersect with the BBox (keeps spatial control)
   var wdpaAoi = aoiBBox.intersection(wdpaGeom, ee.ErrorMargin(1));
 
-  // Se WDPA falhar (size==0 ou interseção vazia), cai para BBox∩Brasil
+  // If WDPA fails (size==0 or empty intersection), fall back to BBox∩Brazil
   var wdpaAreaKm2 = ee.Number(wdpaAoi.area(1)).divide(1e6);
-  print('Área AOI (WDPA ∩ BBox) km²:', wdpaAreaKm2);
+  print('AOI area (WDPA ∩ BBox) km²:', wdpaAreaKm2);
 
   aoiFinal = ee.Algorithms.If(
     wdpaCand.size().gt(0).and(wdpaAreaKm2.gt(0)),
@@ -60,15 +60,15 @@ if (useWDPA) {
   aoiFinal = aoiBase;
 }
 
-// Checks úteis
-print('BBox intersecta Brasil-terra?', aoiBBox.intersects(brasilTerra, ee.ErrorMargin(1)));
-print('Área AOI final (km²):', ee.Number(aoiFinal.area(1)).divide(1e6));
+// Useful checks
+print('Does BBox intersect Brazil land?', aoiBBox.intersects(brasilTerra, ee.ErrorMargin(1)));
+print('Final AOI area (km²):', ee.Number(aoiFinal.area(1)).divide(1e6));
 
 // Visual
 Map.centerObject(aoiFinal, 10);
-Map.addLayer(aoiFinal, {color: 'yellow'}, 'AOI Final');
+Map.addLayer(aoiFinal, {color: 'yellow'}, 'Final AOI');
 
-// Exportar AOI (GeoJSON)
+// Export AOI (GeoJSON)
 Export.table.toDrive({
   collection: ee.FeatureCollection(ee.Feature(aoiFinal, {})),
   description: 'AOI_LencoisMaranhenses_Final',
@@ -82,7 +82,7 @@ Export.table.toDrive({
 function toDB(img) { return img.log10().multiply(10); }
 function toLin(imgDb){ return ee.Image(10).pow(imgDb.divide(10)); }
 
-// Sentinel-1 GRD (IW, VV/VH) — mosaico mediano
+// Sentinel-1 GRD (IW, VV/VH) — median mosaic
 function s1GRDMosaic(start, end) {
   var orbitFilter = ee.Filter.or(
     ee.Filter.eq('orbitProperties_pass', 'ASCENDING'),
@@ -94,13 +94,13 @@ function s1GRDMosaic(start, end) {
     .filterDate(start, end)
     .filter(ee.Filter.eq('instrumentMode', 'IW'))
     .filter(ee.Filter.eq('resolution_meters', 10))
-    .filter(orbitFilter) // <- correção usando ee.Filter.or(...)
+    .filter(orbitFilter) // <- fix using ee.Filter.or(...)
     .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
     .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH'))
     .filter(ee.Filter.eq('productType', 'GRD'))
     .map(function(img){
       var angle = img.select('angle');
-      var mask = angle.gt(30).and(angle.lt(45)); // remove extremos
+      var mask = angle.gt(30).and(angle.lt(45)); // remove extremes
       return img.updateMask(mask)
                 .select(['VV','VH'])
                 .copyProperties(img, img.propertyNames());
@@ -110,7 +110,7 @@ function s1GRDMosaic(start, end) {
   return med;
 }
 
-// Otsu threshold (1 banda)
+// Otsu threshold (single band)
 function otsuThreshold(image, region, scale) {
   var band = image;
   var hist = band.reduceRegion({
@@ -146,7 +146,7 @@ function otsuThreshold(image, region, scale) {
   return threshold;
 }
 
-// Área (km²) de uma máscara
+// Area (km²) of a mask
 function areaKm2(mask) {
   var pixArea = ee.Image.pixelArea().divide(1e6);
   var areaImg = pixArea.updateMask(mask);
@@ -159,30 +159,30 @@ function areaKm2(mask) {
   return ee.Number(area);
 }
 
-// -------- 2) Sentinel-1 — mosaicos chuvoso/seco + ΔUmidade --------
+// -------- 2) Sentinel-1 — wet/dry mosaics + ΔMoisture --------
 var wet = s1GRDMosaic(wetStart, wetEnd);
 var dry = s1GRDMosaic(dryStart, dryEnd);
 
 var wetDb = toDB(wet);
 var dryDb = toDB(dry);
 
-// ΔUmidade (ΔVV em dB)
+// ΔMoisture (ΔVV in dB)
 var dVV = wetDb.select('VV').subtract(dryDb.select('VV')).rename('dVV_db');
 
-Map.addLayer(wetDb.select('VV'), {min:-18, max:2}, 'S1 VV (chuvoso) dB', false);
-Map.addLayer(dryDb.select('VV'), {min:-18, max:2}, 'S1 VV (seco) dB', false);
-Map.addLayer(dVV, {min:-3, max:3, palette:['#2c7bb6','#ffffbf','#d7191c']}, 'ΔUmidade (dVV)');
+Map.addLayer(wetDb.select('VV'), {min:-18, max:2}, 'S1 VV (wet) dB', false);
+Map.addLayer(dryDb.select('VV'), {min:-18, max:2}, 'S1 VV (dry) dB', false);
+Map.addLayer(dVV, {min:-3, max:3, palette:['#2c7bb6','#ffffbf','#d7191c']}, 'ΔMoisture (dVV)');
 
 Export.image.toDrive({
   image: dVV,
-  description: 'Delta_Umidade_S1_dVV',
+  description: 'Delta_Moisture_S1_dVV',
   region: aoiFinal,
   scale: scaleOut,
   maxPixels: 1e13,
   folder: exportFolder
 });
 
-// -------- 3) Máscara de lagoas (Otsu no VV linear) --------
+// -------- 3) Lagoon mask (Otsu on linear VV) --------
 var wetVV_lin = wet.select('VV');
 var thrWet = otsuThreshold(wetVV_lin, aoiFinal, scaleOut);
 var waterWet = wetVV_lin.lte(thrWet).rename('waterWet');
@@ -191,22 +191,22 @@ var dryVV_lin = dry.select('VV');
 var thrDry = otsuThreshold(dryVV_lin, aoiFinal, scaleOut);
 var waterDry = dryVV_lin.lte(thrDry).rename('waterDry');
 
-// Limpeza leve
+// Light cleanup
 var kernel = ee.Kernel.circle({radius:1});
 waterWet = waterWet.focal_mode({kernel: kernel, iterations:1});
 waterDry = waterDry.focal_mode({kernel: kernel, iterations:1});
 
-Map.addLayer(waterWet.selfMask(), {palette:['#0d88e6']}, 'Água (chuvoso)', true);
-Map.addLayer(waterDry.selfMask(), {palette:['#94c6ff']}, 'Água (seco)', false);
+Map.addLayer(waterWet.selfMask(), {palette:['#0d88e6']}, 'Water (wet season)', true);
+Map.addLayer(waterDry.selfMask(), {palette:['#94c6ff']}, 'Water (dry season)', false);
 
-// Áreas (km²)
+// Areas (km²)
 var areaWet_km2 = areaKm2(waterWet);
 var areaDry_km2 = areaKm2(waterDry);
-print('Área de lagoas — Chuvoso (km²):', areaWet_km2);
-print('Área de lagoas — Seco (km²):', areaDry_km2);
-print('ΔÁrea (km²):', ee.Number(areaWet_km2).subtract(areaDry_km2));
+print('Lagoon area — Wet (km²):', areaWet_km2);
+print('Lagoon area — Dry (km²):', areaDry_km2);
+print('ΔArea (km²):', ee.Number(areaWet_km2).subtract(areaDry_km2));
 
-// Vetores (GeoJSON)
+// Vectors (GeoJSON)
 var waterWetVec = waterWet.selfMask().reduceToVectors({
   geometry: aoiFinal, scale: scaleOut,
   geometryType: 'polygon', labelProperty: 'class', maxPixels: 1e13
@@ -218,31 +218,31 @@ var waterDryVec = waterDry.selfMask().reduceToVectors({
 
 Export.table.toDrive({
   collection: waterWetVec,
-  description: 'Poligonos_Lagoas_Chuvoso',
+  description: 'Polygons_Lagoons_Wet',
   fileFormat: 'GeoJSON',
   folder: exportFolder
 });
 Export.table.toDrive({
   collection: waterDryVec,
-  description: 'Poligonos_Lagoas_Seco',
+  description: 'Polygons_Lagoons_Dry',
   fileFormat: 'GeoJSON',
   folder: exportFolder
 });
 
-// -------- 4) Drivers climáticos — CHUVA (GPM V07→fallback CHIRPS) & VENTO (ERA5 HOURLY→mensal) --------
+// -------- 4) Climate drivers — RAIN (GPM V07→fallback CHIRPS) & WIND (ERA5 HOURLY→monthly) --------
 
-// Jan–Dez/2024 (ajuste se quiser outra janela)
+// Jan–Dec/2024 (adjust if you want another window)
 var monthlyStart = ee.Date('2024-01-01');
 var monthlyEnd   = ee.Date('2025-01-01');
 var months = ee.List.sequence(0, 11);
 
-// ==== CHUVA ====
-// 1) Tenta GPM IMERG V07 (mensal)
+// ==== RAIN ====
+// 1) Try GPM IMERG V07 (monthly)
 var gpmV07 = ee.ImageCollection('NASA/GPM_L3/IMERG_MONTHLY_V07')
   .filterDate(monthlyStart, monthlyEnd)
   .select(['precipitation']); // mm/month
 
-// 2) Se GPM V07 vier vazio, usa CHIRPS diário e agrega para soma mensal (mm/mês)
+// 2) If GPM V07 is empty, use daily CHIRPS and aggregate to monthly sum (mm/month)
 var chirpsDaily = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
   .filterDate(monthlyStart, monthlyEnd)
   .select(['precipitation']); // mm/day
@@ -250,7 +250,7 @@ var chirpsDaily = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
 var chirpsMonthlyList = months.map(function(m){
   var mStart = monthlyStart.advance(ee.Number(m), 'month');
   var mEnd   = mStart.advance(1, 'month');
-  // soma dos dias do mês => mm/mês
+  // sum of days in month => mm/month
   var mImg = chirpsDaily.filterDate(mStart, mEnd).sum()
     .set('system:time_start', mStart.millis())
     .rename('precipitation');
@@ -258,14 +258,14 @@ var chirpsMonthlyList = months.map(function(m){
 });
 var chirpsMonthly = ee.ImageCollection.fromImages(chirpsMonthlyList);
 
-// Escolhe automaticamente: GPM V07 se existir; caso contrário, CHIRPS mensal
+// Auto-select: GPM V07 if exists; otherwise, CHIRPS monthly
 var rainMonthlyCol = ee.ImageCollection(
   ee.Algorithms.If(gpmV07.size().gt(0), gpmV07, chirpsMonthly)
 );
 
-// Série (mês a mês) — média espacial na AOI (robusto)
+// Series (month by month) — spatial mean over AOI (robust)
 var rainMonthlyTable = ee.FeatureCollection(rainMonthlyCol.map(function(img){
-  // garante que o AOI não gere nulos em áreas mascaradas
+  // ensure AOI doesn’t produce nulls over masked areas
   var imgOk = img.unmask(0);
 
   var mean = imgOk.reduceRegion({
@@ -275,7 +275,7 @@ var rainMonthlyTable = ee.FeatureCollection(rainMonthlyCol.map(function(img){
     bestEffort: true
   }).get('precipitation');
 
-  // força Number e adiciona metadados úteis
+  // force Number and add useful metadata
   return ee.Feature(null, {
     'date': ee.Date(img.get('system:time_start')).format('YYYY-MM'),
     'precip_mm': ee.Number(mean),
@@ -283,23 +283,21 @@ var rainMonthlyTable = ee.FeatureCollection(rainMonthlyCol.map(function(img){
   });
 }));
 
-print('Chuva mensal — 2024 (GPMv07 ou CHIRPS)', rainMonthlyTable);
+print('Monthly rain — 2024 (GPMv07 or CHIRPS)', rainMonthlyTable);
 
-// (opcional) visualize primeiro mês pra checar que veio número:
-print('Exemplo chuva (jan):', ee.Feature(rainMonthlyTable.first()).toDictionary());
-
+// (optional) preview first month to confirm we have a number:
+print('Rain example (Jan):', ee.Feature(rainMonthlyTable.first()).toDictionary());
 
 // Export CSV
 Export.table.toDrive({
   collection: rainMonthlyTable,
-  description: 'RAIN_mensal_2024_GPMv07_fallback_CHIRPS',
+  description: 'RAIN_monthly_2024_GPMv07_fallback_CHIRPS',
   fileFormat: 'CSV',
   folder: exportFolder
 });
 
-
-// ==== VENTO ====
-// ERA5-Land HOURLY → média mensal de u10 e v10
+// ==== WIND ====
+// ERA5-Land HOURLY → monthly mean of u10 and v10
 var era5Hourly = ee.ImageCollection('ECMWF/ERA5_LAND/HOURLY')
   .filterDate(monthlyStart, monthlyEnd)
   .select(['u_component_of_wind_10m','v_component_of_wind_10m']); // m/s
@@ -307,16 +305,16 @@ var era5Hourly = ee.ImageCollection('ECMWF/ERA5_LAND/HOURLY')
 var windMonthlyImgs = months.map(function(m){
   var mStart = monthlyStart.advance(ee.Number(m), 'month');
   var mEnd   = mStart.advance(1, 'month');
-  // média temporal ao longo do mês
+  // temporal mean over the month
   var mMean = era5Hourly.filterDate(mStart, mEnd).mean()
     .set('system:time_start', mStart.millis());
   return mMean;
 });
 var windMonthlyCol = ee.ImageCollection.fromImages(windMonthlyImgs);
 
-// Série (mês a mês) — média espacial na AOI + magnitude e direção (robusto)
+// Series (month by month) — spatial mean over AOI + magnitude & direction (robust)
 var windMonthlyTable = ee.FeatureCollection(windMonthlyCol.map(function(img){
-  // ERA5-Land HOURLY já é completo, mas vamos garantir sem nulos
+  // ERA5-Land HOURLY is complete, but ensure no nulls
   var imgOk = img.unmask(0);
 
   var stats = imgOk.reduceRegion({
@@ -330,7 +328,7 @@ var windMonthlyTable = ee.FeatureCollection(windMonthlyCol.map(function(img){
   var v = ee.Number(stats.get('v_component_of_wind_10m'));
   var speed = u.hypot(v);                 // m/s
   var dirRad = v.atan2(u);                // rad (x=u, y=v)
-  var dirDeg = dirRad.multiply(180/Math.PI); // graus, convenção matemática
+  var dirDeg = dirRad.multiply(180/Math.PI); // degrees, math convention
 
   return ee.Feature(null, {
     'date': ee.Date(img.get('system:time_start')).format('YYYY-MM'),
@@ -340,19 +338,18 @@ var windMonthlyTable = ee.FeatureCollection(windMonthlyCol.map(function(img){
   });
 }));
 
-print('ERA5 vento mensal — 2024 (agregado de HOURLY)', windMonthlyTable);
-print('Exemplo vento (jan):', ee.Feature(windMonthlyTable.first()).toDictionary());
+print('ERA5 monthly wind — 2024 (aggregated from HOURLY)', windMonthlyTable);
+print('Wind example (Jan):', ee.Feature(windMonthlyTable.first()).toDictionary());
 
 // Export CSV
 Export.table.toDrive({
   collection: windMonthlyTable,
-  description: 'ERA5_wind_mensal_2024_from_HOURLY',
+  description: 'ERA5_wind_monthly_2024_from_HOURLY',
   fileFormat: 'CSV',
   folder: exportFolder
 });
 
-
-// -------- 5) Sentinel-2 (validação visual) --------
+// -------- 5) Sentinel-2 (visual validation) --------
 var s2 = ee.ImageCollection('COPERNICUS/S2_SR')
   .filterBounds(aoiFinal)
   .filterDate(wetStart, wetEnd)
@@ -360,9 +357,9 @@ var s2 = ee.ImageCollection('COPERNICUS/S2_SR')
   .median()
   .clip(aoiFinal);
 
-Map.addLayer(s2, {bands:['B4','B3','B2'], min:0, max:3000}, 'Sentinel-2 (chuvoso) RGB', false);
+Map.addLayer(s2, {bands:['B4','B3','B2'], min:0, max:3000}, 'Sentinel-2 (wet) RGB', false);
 
-// -------- 6) Offset Tracking (exports para rodar fora do GEE) --------
+// -------- 6) Offset Tracking (exports to run outside GEE) --------
 var pair1_A = wet.select('VV').toFloat().clip(aoiFinal);
 var pair1_B = dry.select('VV').toFloat().clip(aoiFinal);
 var proj = pair1_A.projection().atScale(scaleOut);
@@ -371,7 +368,7 @@ pair1_B = pair1_B.reproject({crs: proj});
 
 Export.image.toDrive({
   image: pair1_A,
-  description: 'S1_GRD_VV_chuvoso_forOffset',
+  description: 'S1_GRD_VV_wet_forOffset',
   region: aoiFinal,
   scale: scaleOut,
   maxPixels: 1e13,
@@ -379,62 +376,62 @@ Export.image.toDrive({
 });
 Export.image.toDrive({
   image: pair1_B,
-  description: 'S1_GRD_VV_seco_forOffset',
+  description: 'S1_GRD_VV_dry_forOffset',
   region: aoiFinal,
   scale: scaleOut,
   maxPixels: 1e13,
   folder: exportFolder
 });
 
-// Placeholder para transectos desenhados manualmente
+// Placeholder for manually drawn transects
 var transectos = /* color: #00ffff */ ee.FeatureCollection([]);
-Map.addLayer(transectos, {color:'#00ffff'}, 'Transectos (desenhe)');
+Map.addLayer(transectos, {color:'#00ffff'}, 'Transects (draw)');
 
-// -------- 7) Stack de água para export final --------
-var waterStack = waterWet.rename('agua_chuvoso').addBands(waterDry.rename('agua_seco'));
+// -------- 7) Water stack for final export --------
+var waterStack = waterWet.rename('water_wet').addBands(waterDry.rename('water_dry'));
 Export.image.toDrive({
   image: waterStack,
-  description: 'Agua_chuvoso_seco_stack',
+  description: 'Water_wet_dry_stack',
   region: aoiFinal,
   scale: scaleOut,
   maxPixels: 1e13,
   folder: exportFolder
 });
 
-// -------- 8) Previews finais --------
-Map.addLayer(wetDb.select('VV'), {min:-18, max:2, palette:['#1a1a1a','#c0d9ff','#ffffff']}, 'VV dB (chuvoso) estilizado', false);
-Map.addLayer(waterWet.selfMask(), {palette:['#00a6ff']}, 'Lagoas (chuvoso) — final', true);
-Map.addLayer(dVV, {min:-3, max:3, palette:['#2c7bb6','#ffffbf','#d7191c']}, 'ΔUmidade — final', false);
+// -------- 8) Final previews --------
+Map.addLayer(wetDb.select('VV'), {min:-18, max:2, palette:['#1a1a1a','#c0d9ff','#ffffff']}, 'VV dB (wet) styled', false);
+Map.addLayer(waterWet.selfMask(), {palette:['#00a6ff']}, 'Lagoons (wet) — final', true);
+Map.addLayer(dVV, {min:-3, max:3, palette:['#2c7bb6','#ffffbf','#d7191c']}, 'ΔMoisture — final', false);
 
 
-// ===== Charts rápidos =====
+// ===== Quick charts =====
 
-// Chuva mensal (mm)
+// Monthly rainfall (mm)
 var chartRain = ui.Chart.feature.byFeature(rainMonthlyTable, 'date', ['precip_mm'])
   .setOptions({
-    title: 'Chuva mensal na AOI (mm) — 2024',
-    hAxis: {title: 'Mês'},
-    vAxis: {title: 'mm/mês'},
+    title: 'Monthly rainfall in AOI (mm) — 2024',
+    hAxis: {title: 'Month'},
+    vAxis: {title: 'mm/month'},
     legend: {position: 'none'}
   });
 print(chartRain);
 
-// Vento mensal (m/s)
+// Monthly wind speed (m/s)
 var chartWind = ui.Chart.feature.byFeature(windMonthlyTable, 'date', ['speed_ms'])
   .setOptions({
-    title: 'Vento 10m (média mensal) — 2024',
-    hAxis: {title: 'Mês'},
+    title: '10 m Wind (monthly mean) — 2024',
+    hAxis: {title: 'Month'},
     vAxis: {title: 'm/s'},
     legend: {position: 'none'}
   });
 print(chartWind);
 
-// (opcional) direções — checagem rápida
+// (optional) directions — quick check
 var chartDir = ui.Chart.feature.byFeature(windMonthlyTable, 'date', ['dir_deg_math'])
   .setOptions({
-    title: 'Direção média (graus, convenção matemática) — 2024',
-    hAxis: {title: 'Mês'},
-    vAxis: {title: 'graus'},
+    title: 'Mean direction (degrees, math convention) — 2024',
+    hAxis: {title: 'Month'},
+    vAxis: {title: 'degrees'},
     legend: {position: 'none'}
   });
 print(chartDir);
@@ -445,9 +442,9 @@ var deltaArea = wetArea.subtract(dryArea);
 var pct = deltaArea.divide(dryArea).multiply(100);
 
 print(
-  ee.String('Selo: Entre mar–jun/2024, a área de lagoas aumentou ')
-    .cat(ee.Number(pct).format('%.1f')).cat('% (de ')
-    .cat(ee.Number(dryArea).format('%.1f')).cat(' para ')
+  ee.String('Summary: Between Mar–Jun/2024, lagoon area increased by ')
+    .cat(ee.Number(pct).format('%.1f')).cat('% (from ')
+    .cat(ee.Number(dryArea).format('%.1f')).cat(' to ')
     .cat(ee.Number(wetArea).format('%.1f')).cat(' km²).')
 );
 
