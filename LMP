@@ -406,3 +406,48 @@ Map.addLayer(wetDb.select('VV'), {min:-18, max:2, palette:['#1a1a1a','#c0d9ff','
 Map.addLayer(waterWet.selfMask(), {palette:['#00a6ff']}, 'Lagoas (chuvoso) — final', true);
 Map.addLayer(dVV, {min:-3, max:3, palette:['#2c7bb6','#ffffbf','#d7191c']}, 'ΔUmidade — final', false);
 
+
+// ===== Charts rápidos =====
+
+// Chuva mensal (mm)
+var chartRain = ui.Chart.feature.byFeature(rainMonthlyTable, 'date', ['precip_mm'])
+  .setOptions({
+    title: 'Chuva mensal na AOI (mm) — 2024',
+    hAxis: {title: 'Mês'},
+    vAxis: {title: 'mm/mês'},
+    legend: {position: 'none'}
+  });
+print(chartRain);
+
+// Vento mensal (m/s)
+var chartWind = ui.Chart.feature.byFeature(windMonthlyTable, 'date', ['speed_ms'])
+  .setOptions({
+    title: 'Vento 10m (média mensal) — 2024',
+    hAxis: {title: 'Mês'},
+    vAxis: {title: 'm/s'},
+    legend: {position: 'none'}
+  });
+print(chartWind);
+
+// (opcional) direções — checagem rápida
+var chartDir = ui.Chart.feature.byFeature(windMonthlyTable, 'date', ['dir_deg_math'])
+  .setOptions({
+    title: 'Direção média (graus, convenção matemática) — 2024',
+    hAxis: {title: 'Mês'},
+    vAxis: {title: 'graus'},
+    legend: {position: 'none'}
+  });
+print(chartDir);
+
+var wetArea = areaWet_km2;
+var dryArea = areaDry_km2;
+var deltaArea = wetArea.subtract(dryArea);
+var pct = deltaArea.divide(dryArea).multiply(100);
+
+print(
+  ee.String('Selo: Entre mar–jun/2024, a área de lagoas aumentou ')
+    .cat(ee.Number(pct).format('%.1f')).cat('% (de ')
+    .cat(ee.Number(dryArea).format('%.1f')).cat(' para ')
+    .cat(ee.Number(wetArea).format('%.1f')).cat(' km²).')
+);
+
