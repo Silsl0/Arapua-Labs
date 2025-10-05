@@ -1,0 +1,12 @@
+*.tif
+*.zip
+*.tar
+*.gz
+*.7z
+*.mbtiles
+*.gpkg
+*.geoparquet
+.DS_Store
+Thumbs.db
+*.ipynb_checkpoints
+*.save
